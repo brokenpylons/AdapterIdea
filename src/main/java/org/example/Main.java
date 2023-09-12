@@ -35,7 +35,7 @@ class RawKnob implements Knob {
 
     @Override
     public int repair(int index) {
-        return Math.max(0, Math.min(index, configCount));
+        return Math.max(0, Math.min(index, configCount - 1));
     }
 
     @Override
