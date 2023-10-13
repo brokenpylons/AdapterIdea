@@ -1,10 +1,10 @@
 package org.example;
 
-import org.um.feri.ears.algorithms.moo.nsga3.I_NSGAIII;
+import org.um.feri.ears.algorithms.moo.nsga2.D_NSGAII;
 import org.um.feri.ears.problems.*;
 
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
@@ -17,7 +17,7 @@ interface Knob {
 }
 
 interface Evaluator {
-    double[] eval(List<Integer> conf);
+    double[] eval(int[] conf);
 }
 
 class RawKnob implements Knob {
@@ -44,7 +44,13 @@ class RawKnob implements Knob {
     }
 }
 
-final class CompatNumberProblem extends NumberProblem<Integer> {
+class Stop extends RuntimeException {
+    public Stop() {
+        super("Stop evaluation");
+    }
+}
+
+final class CompatNumberProblem extends NumberProblem<Double> {
     private final Knob[] knobs;
     private final Evaluator evaluator;
 
@@ -55,25 +61,25 @@ final class CompatNumberProblem extends NumberProblem<Integer> {
         lowerLimit = new ArrayList<>();
         upperLimit = new ArrayList<>();
         for (Knob knob : knobs) {
-            lowerLimit.add(0);
-            upperLimit.add(knob.configCount());
+            lowerLimit.add(0.0);
+            upperLimit.add((double)knob.configCount());
         }
     }
 
     @Override
-    public void evaluate(NumberSolution<Integer> solution) {
-        solution.setObjectives(evaluator.eval(solution.getVariables()));
+    public void evaluate(NumberSolution<Double> solution) {
+        solution.setObjectives(evaluator.eval(solution.getVariables().stream().mapToInt(Double::intValue).toArray()));
     }
 
     @Override
-    public void makeFeasible(NumberSolution<Integer> solution) {
+    public void makeFeasible(NumberSolution<Double> solution) {
         for (int i = 0; i < knobs.length; i++) {
-            solution.setValue(i, knobs[i].repair(solution.getValue(i)));
+            solution.setValue(i, (double)knobs[i].repair(solution.getValue(i).intValue()));
         }
     }
 
     @Override
-    public boolean isFeasible(NumberSolution<Integer> solution) {
+    public boolean isFeasible(NumberSolution<Double> solution) {
         for (int i = 0; i < knobs.length; i++) {
             final var x = solution.getValue(i);
             if (!(0 <= x && x < knobs[i].configCount())) {
@@ -84,10 +90,10 @@ final class CompatNumberProblem extends NumberProblem<Integer> {
     }
 
     @Override
-    public NumberSolution<Integer> getRandomSolution() {
-        final var solution = new ArrayList<Integer>();
+    public NumberSolution<Double> getRandomSolution() {
+        final var solution = new ArrayList<Double>();
         for (Knob knob : knobs) {
-            solution.add(knob.randomize());
+            solution.add((double)knob.randomize());
         }
         return new NumberSolution<>(numberOfObjectives, solution);
     }
@@ -97,12 +103,21 @@ final class Adapter {
 
     private final Thread thread;
 
-    private BlockingQueue<List<Integer>> blockConfiguration;
+    private BlockingQueue<int[]> blockConfiguration;
 
     private BlockingQueue<double[]> blockObjectives;
 
     public Adapter(Function<Evaluator, Runnable> task) {
-        this.thread = new Thread(task.apply(new Hook()));
+        Thread mainThread = Thread.currentThread();
+        this.thread = new Thread(() -> {
+            task.apply(new Hook()).run();
+            throw new Stop();
+        });
+        this.thread.setUncaughtExceptionHandler((t, e) -> {
+            if (e instanceof Stop) {
+                mainThread.interrupt();
+            }
+        });
     }
 
     public void start() {
@@ -111,11 +126,15 @@ final class Adapter {
         thread.start();
     }
 
-    public List<Integer> nextConfiguration() {
+    public void stop() {
+        thread.interrupt();
+    }
+
+    public int[] nextConfiguration()  {
         try {
             return blockConfiguration.take();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            throw new Stop();
         }
     }
 
@@ -124,12 +143,13 @@ final class Adapter {
     }
 
     private class Hook implements Evaluator {
-        public double[] eval(List<Integer> conf) {
+
+        public double[] eval(int[] conf) {
             blockConfiguration.add(conf);
             try {
                 return blockObjectives.take();
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                throw new Stop();
             }
         }
     }
@@ -140,24 +160,28 @@ public class Main {
     public static void main(String[] args) {
 
         Knob[] knobs = new Knob[]{
-                new RawKnob(10),
-                new RawKnob(10),
-                new RawKnob(10),
-                new RawKnob(10)
+                new RawKnob(100),
+                new RawKnob(100),
+                new RawKnob(100),
+                new RawKnob(100)
         };
 
         Adapter adapter = new Adapter(h ->
                 () -> {
                     try {
-                        new I_NSGAIII().execute(new Task<>(new CompatNumberProblem("problem", knobs, h, 2), StopCriterion.STAGNATION, 0, 0, 0));
-                    } catch (StopCriterionException e) {
-                        throw new RuntimeException(e);
-                    }
+                        new D_NSGAII().execute(new Task<>(new CompatNumberProblem("problem", knobs, h, 2), StopCriterion.EVALUATIONS, 10000, 0, 0));
+                    } catch (StopCriterionException ignored) {}
                 });
         adapter.start();
-        for (int i = 0; i < 1000; i++) {
-            System.out.println(adapter.nextConfiguration());
-            adapter.update(new double[]{ ThreadLocalRandom.current().nextDouble(), ThreadLocalRandom.current().nextDouble() });
-        }
+        try {
+            for (int i = 0; i < 1000; i++) {
+                final var conf = adapter.nextConfiguration();
+                System.out.println(Arrays.toString(conf));
+                final var sum = Arrays.stream(conf).sum();
+                final var max = Arrays.stream(conf).max();
+                adapter.update(new double[]{sum, -max.getAsInt()});
+            }
+            adapter.stop();
+        } catch (Stop ignore) {}
     }
 }

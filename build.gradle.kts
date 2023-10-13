@@ -9,7 +9,7 @@ repositories {
     mavenCentral()
 
     ivy {
-        url = uri("https://github.com/UM-LPM/EARS/releases/download/v3.0.0")
+        url = uri("https://test.lpm.feri.um.si")
         patternLayout {
             artifact("/[module].[ext]")
         }
