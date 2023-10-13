@@ -44,8 +44,14 @@ class RawKnob implements Knob {
     }
 }
 
-class Stop extends RuntimeException {
-    public Stop() {
+class Completed extends Exception {
+    public Completed() {
+        super(" Optimization completted");
+    }
+}
+
+class ForceStop extends RuntimeException {
+    public ForceStop() {
         super("Stop evaluation");
     }
 }
@@ -110,13 +116,10 @@ final class Adapter {
     public Adapter(Function<Evaluator, Runnable> task) {
         Thread mainThread = Thread.currentThread();
         this.thread = new Thread(() -> {
-            task.apply(new Hook()).run();
-            throw new Stop();
-        });
-        this.thread.setUncaughtExceptionHandler((t, e) -> {
-            if (e instanceof Stop) {
-                mainThread.interrupt();
-            }
+            try {
+                task.apply(new Hook()).run();
+            } catch (ForceStop ignore) {}
+            mainThread.interrupt();
         });
     }
 
@@ -130,11 +133,11 @@ final class Adapter {
         thread.interrupt();
     }
 
-    public int[] nextConfiguration()  {
+    public int[] nextConfiguration() throws Completed  {
         try {
             return blockConfiguration.take();
         } catch (InterruptedException e) {
-            throw new Stop();
+            throw new Completed();
         }
     }
 
@@ -149,7 +152,7 @@ final class Adapter {
             try {
                 return blockObjectives.take();
             } catch (InterruptedException e) {
-                throw new Stop();
+                throw new ForceStop();
             }
         }
     }
@@ -169,7 +172,7 @@ public class Main {
         Adapter adapter = new Adapter(h ->
                 () -> {
                     try {
-                        new D_NSGAII().execute(new Task<>(new CompatNumberProblem("problem", knobs, h, 2), StopCriterion.EVALUATIONS, 10000, 0, 0));
+                        new D_NSGAII().execute(new Task<>(new CompatNumberProblem("problem", knobs, h, 2), StopCriterion.EVALUATIONS, 100000, 0, 0));
                     } catch (StopCriterionException ignored) {}
                 });
         adapter.start();
@@ -182,6 +185,9 @@ public class Main {
                 adapter.update(new double[]{sum, -max.getAsInt()});
             }
             adapter.stop();
-        } catch (Stop ignore) {}
+        } catch (Completed e) {
+            System.out.println("Optimization completed");
+
+        }
     }
 }
