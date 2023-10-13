@@ -183,6 +183,19 @@ class Wrapper {
 
 public class Main {
 
+    public static final Adapter adapter = new Adapter(h ->
+            () -> {
+                Knob[] knobs = new Knob[]{
+                        new RawKnob(100),
+                        new RawKnob(100),
+                        new RawKnob(100),
+                        new RawKnob(100)
+                };
+                try {
+                    new D_NSGAII().execute(new Task<>(new CompatNumberProblem("problem", knobs, h, 2), StopCriterion.EVALUATIONS, 100000, 0, 0));
+                } catch (StopCriterionException ignored) {}
+            });
+
     public static double[] eval(int[] conf) {
         System.out.println(Arrays.toString(conf));
         final var sum = Arrays.stream(conf).sum();
@@ -191,20 +204,6 @@ public class Main {
     }
 
     public static void main(String[] args) {
-
-        Knob[] knobs = new Knob[]{
-                new RawKnob(100),
-                new RawKnob(100),
-                new RawKnob(100),
-                new RawKnob(100)
-        };
-
-        Adapter adapter = new Adapter(h ->
-                () -> {
-                    try {
-                        new D_NSGAII().execute(new Task<>(new CompatNumberProblem("problem", knobs, h, 2), StopCriterion.EVALUATIONS, 100000, 0, 0));
-                    } catch (StopCriterionException ignored) {}
-                });
         adapter.start();
         Wrapper wrapper = new Wrapper(adapter, Main::eval);
 
@@ -212,10 +211,11 @@ public class Main {
             for (int i = 0; i < 1000; i++) {
                 System.out.println(Arrays.toString(wrapper.get()));
             }
-            adapter.stop();
         } catch (Completed e) {
             System.out.println("Optimization completed");
 
         }
+
+        adapter.stop();
     }
 }
