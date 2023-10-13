@@ -161,21 +161,26 @@ final class Adapter {
 
 class Wrapper {
     Adapter adapter;
-    Function<int[], double[]> function;
+    Function<int[], double[]> qos;
 
-    Wrapper(Adapter adapter, Function<int[], double[]> function) {
+    Function<int[], Integer> eval;
+
+    Wrapper(Adapter adapter, Function<int[], double[]> qos, Function<int[], Integer> eval) {
         this.adapter = adapter;
-        this.function = function;
+        this.qos = qos;
+        this.eval = eval;
     }
 
-    double[] get() throws Completed {
+    int get() throws Completed {
         final var conf = adapter.nextConfiguration();
 
         // measure
-        final var result = function.apply(conf);
+        final var qos = this.qos.apply(conf);
 
-        // but since we don't have anything to measure optimzie the result
-        adapter.update(result);
+        // eval
+        final var result = this.eval.apply(conf);
+
+        adapter.update(qos);
 
         return result;
     }
@@ -196,20 +201,24 @@ public class Main {
                 } catch (StopCriterionException ignored) {}
             });
 
-    public static double[] eval(int[] conf) {
-        System.out.println(Arrays.toString(conf));
+    public static double[] qos(int[] conf) {
         final var sum = Arrays.stream(conf).sum();
         final var max = Arrays.stream(conf).max();
         return new double[]{sum, -max.getAsInt()};
     }
 
+    public static int eval(int[] conf) {
+        System.out.println(Arrays.toString(conf));
+        return Arrays.stream(conf).min().getAsInt();
+    }
+
     public static void main(String[] args) {
         adapter.start();
-        Wrapper wrapper = new Wrapper(adapter, Main::eval);
+        Wrapper wrapper = new Wrapper(adapter, Main::qos, Main::eval);
 
         try {
             for (int i = 0; i < 1000; i++) {
-                System.out.println(Arrays.toString(wrapper.get()));
+                System.out.println(wrapper.get());
             }
         } catch (Completed e) {
             System.out.println("Optimization completed");
