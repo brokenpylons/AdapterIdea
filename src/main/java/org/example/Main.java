@@ -9,6 +9,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
 interface Knob {
     int configCount();
@@ -158,7 +159,36 @@ final class Adapter {
     }
 }
 
+class Wrapper {
+    Adapter adapter;
+    Function<int[], double[]> function;
+
+    Wrapper(Adapter adapter, Function<int[], double[]> function) {
+        this.adapter = adapter;
+        this.function = function;
+    }
+
+    double[] get() throws Completed {
+        final var conf = adapter.nextConfiguration();
+
+        // measure
+        final var result = function.apply(conf);
+
+        // but since we don't have anything to measure optimzie the result
+        adapter.update(result);
+
+        return result;
+    }
+}
+
 public class Main {
+
+    public static double[] eval(int[] conf) {
+        System.out.println(Arrays.toString(conf));
+        final var sum = Arrays.stream(conf).sum();
+        final var max = Arrays.stream(conf).max();
+        return new double[]{sum, -max.getAsInt()};
+    }
 
     public static void main(String[] args) {
 
@@ -176,13 +206,11 @@ public class Main {
                     } catch (StopCriterionException ignored) {}
                 });
         adapter.start();
+        Wrapper wrapper = new Wrapper(adapter, Main::eval);
+
         try {
             for (int i = 0; i < 1000; i++) {
-                final var conf = adapter.nextConfiguration();
-                System.out.println(Arrays.toString(conf));
-                final var sum = Arrays.stream(conf).sum();
-                final var max = Arrays.stream(conf).max();
-                adapter.update(new double[]{sum, -max.getAsInt()});
+                System.out.println(Arrays.toString(wrapper.get()));
             }
             adapter.stop();
         } catch (Completed e) {
